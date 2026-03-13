@@ -125,8 +125,8 @@
 |---------|----------|----------|----------|
 | D-4.2.1 | 可篡位条件 | 次子在偏好属性上超新王 ≥15 | canUsurp === true |
 | D-4.2.2 | 不可篡位 | 次子无偏好属性超 15 | canUsurp === false |
-| D-4.2.3 | 30% 概率 | canUsurp 且 random<0.3 | 篡位成功，次子成为新王 |
-| D-4.2.4 | 70% 概率 | canUsurp 且 random>=0.3 | 篡位失败，原新王保留 |
+| D-4.2.3 | 力量影响胜率 | 篡位者 STR 超新王越多，calcUsurpChance 越高 | 胜率随 STR 差递增 |
+| D-4.2.4 | 体质影响防御 | 新王 CON 越高，calcUsurpChance 越低 | 胜率随 CON 递减 |
 
 ---
 
@@ -141,8 +141,57 @@
 
 ---
 
-## 六、测试执行说明
+## 六、六维属性玩法机制 (GameplayService)
 
-- **纯逻辑测试**：CatEntity、GeneticsSystem、Definitions 无 Cocos 依赖，可直接用 Vitest/Jest 单测
+### 6.1 体质 (CON) - 王朝稳定性
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.1.1 | 体质降低被篡位率 | 新王 CON 高、篡位者 STR 相同 | calcUsurpChance 更低 |
+| A-6.1.2 | 寿命已覆盖 | 见 S-2.4.x | lifespan = 10 + CON/10 |
+
+### 6.2 力量 (STR) - 武力夺权
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.2.1 | 力量提高篡位胜率 | 篡位者 STR 超新王 | calcUsurpChance 更高 |
+| A-6.2.2 | 力量差为负时胜率降低 | 篡位者 STR < 新王 | calcUsurpChance < 0.2 |
+
+### 6.3 敏捷 (AGI) - 规避刺杀
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.3.1 | 敏捷提高存活率 | AGI 越高 | calcAssassinationSurviveChance 越高 |
+| A-6.3.2 | 存活率上限 95% | AGI 极高 | 存活率钳制 ≤ 0.95 |
+| A-6.3.3 | 刺杀基础概率 | getAssassinationChance | 返回 0.12 |
+
+### 6.4 智力 (INT) - 盟约效率
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.4.1 | INT 0 时盟约倍率 1.1 | motherKingdomId 有效，INT=0 | 偏好属性 × 1.1 |
+| A-6.4.2 | INT 100 时盟约倍率 1.2 | motherKingdomId 有效，INT=100 | 偏好属性 × 1.2 |
+| A-6.4.3 | INT 50 时盟约倍率 1.15 | 见 S-2.2.1 | 偏好属性 × 1.15 |
+
+### 6.5 魅力 (CHA) - 流浪猫造访
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.5.1 | 魅力提高流浪猫概率 | CHA 越高 | calcWildSpouseChance 越高 |
+| A-6.5.2 | 流浪猫概率上限 60% | CHA 极高 | 概率钳制 ≤ 0.6 |
+| A-6.5.3 | CHA 0 时基础 25% | 猫王 CHA=0 | calcWildSpouseChance ≈ 0.25 |
+
+### 6.6 幸运 (LUK) - 基因突变率
+
+| 用例 ID | 分支描述 | 前置条件 | 预期结果 |
+|---------|----------|----------|----------|
+| A-6.6.1 | 父母 LUK 提高后代突变率 | 父母 LUK 高 | 后代 mutationChanceMultiplier > 1 |
+| A-6.6.2 | LUK 与性状触发器叠加 | 父 StarryEye + 父母 LUK 各 50 | mutationChanceMultiplier ≥ 1.5 × 1.5 |
+
+---
+
+## 七、测试执行说明
+
+- **纯逻辑测试**：CatEntity、GeneticsSystem、GameplayService、Definitions 无 Cocos 依赖，可直接用 Vitest/Jest 单测
 - **确定性测试**：通过注入 `RandomSource` 控制随机，验证分支
 - **BreedingTest**：依赖 `cc`，需在 Cocos 环境中运行或 mock `cc`

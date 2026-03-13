@@ -7,6 +7,12 @@ import { describe, it, expect } from 'vitest';
 import { CatEntity } from '../assets/Scripts/CatEntity';
 import { GeneticsSystem } from '../assets/Scripts/GeneticsSystem';
 import {
+  calcUsurpChance,
+  calcAssassinationSurviveChance,
+  getAssassinationChance,
+  calcWildSpouseChance,
+} from '../assets/Scripts/GameplayService';
+import {
   BloodlineType,
   KINGDOMS,
   BASE_LIFESPAN,
@@ -26,7 +32,8 @@ const triggerMutationRng = { random: () => 0.005 };
 const triggerStarryMutationRng = { random: () => 0.01 };
 
 const baseStats: Stats = { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 };
-const defaultGene: GenePair = [{ trait: 'blue', dominant: true }, { trait: 'green', dominant: false }];
+const defaultEyeGene: GenePair = [{ trait: 'blue', dominant: true }, { trait: 'green', dominant: false }];
+const defaultFurGene: GenePair = [{ trait: 'orange', dominant: true }, { trait: 'white', dominant: false }];
 
 function createCat(overrides: Record<string, unknown> = {}) {
   return new CatEntity({
@@ -34,8 +41,8 @@ function createCat(overrides: Record<string, unknown> = {}) {
     bloodline: BloodlineType.ROYAL,
     kingdomId: 'central',
     generation: 1,
-    eyeGene: defaultGene,
-    furGene: defaultGene,
+    eyeGene: defaultEyeGene,
+    furGene: defaultFurGene,
     randomSource: noMutationRng,
     ...overrides,
   });
@@ -128,7 +135,7 @@ describe('1.4 纯合子性状加成', () => {
   it('G-1.4.1 纯合子 blue 加成 1.5 倍', () => {
     const cat = createCat({
       eyeGene: [{ trait: 'blue', dominant: true }, { trait: 'blue', dominant: true }],
-      furGene: [{ trait: 'white', dominant: false }, { trait: 'white', dominant: false }],
+      furGene: [{ trait: 'white', dominant: false }, { trait: 'white', dominant: false }], // 无加成
     });
     const eff = cat.getEffectiveStats();
     // blue 基础 +2 int，纯合子 1.5x = 3
@@ -138,6 +145,7 @@ describe('1.4 纯合子性状加成', () => {
   it('G-1.4.2 杂合子 blue 加成正常', () => {
     const cat = createCat({
       eyeGene: [{ trait: 'blue', dominant: true }, { trait: 'green', dominant: false }],
+      furGene: [{ trait: 'white', dominant: false }, { trait: 'white', dominant: false }], // 无加成
     });
     const eff = cat.getEffectiveStats();
     expect(eff.intelligence).toBe(50 + 2);
@@ -148,7 +156,10 @@ describe('1.4 纯合子性状加成', () => {
 
 describe('2.1 性状属性加成', () => {
   it('S-2.1.1 blue 性状', () => {
-    const cat = createCat({ eyeGene: [{ trait: 'blue', dominant: true }, { trait: 'green', dominant: false }] });
+    const cat = createCat({
+      eyeGene: [{ trait: 'blue', dominant: true }, { trait: 'green', dominant: false }],
+      furGene: [{ trait: 'white', dominant: false }, { trait: 'white', dominant: false }],
+    });
     const eff = cat.getEffectiveStats();
     expect(eff.intelligence).toBe(52);
   });
@@ -157,21 +168,23 @@ describe('2.1 性状属性加成', () => {
     const cat = createCat({
       bloodline: BloodlineType.MYTHIC,
       cachedTraits: { eye: 'Godly_Glow', fur: 'Godly_Glow' },
+      furGene: [{ trait: 'white', dominant: false }, { trait: 'white', dominant: false }],
     });
     const eff = cat.getEffectiveStats();
-    // Godly_Glow 每项 +2，MYTHIC 每项 +3，base 50
-    expect(eff.constitution).toBe(50 + 2 + 3);
+    // Godly_Glow 眼睛+毛发各 +2，MYTHIC +3，base 50
+    expect(eff.constitution).toBe(50 + 2 + 2 + 3);
   });
 });
 
 describe('2.2 盟约加成', () => {
-  it('S-2.2.1 盟约生效：王室母亲', () => {
+  it('S-2.2.1 盟约生效：王室母亲，智力影响效率', () => {
     const cat = createCat({
       motherKingdomId: 'north',
       motherBloodline: BloodlineType.ROYAL,
-      stats: { ...baseStats, constitution: 80, strength: 80 },
+      stats: { ...baseStats, constitution: 80, strength: 80, intelligence: 50 },
     });
     const eff = cat.getEffectiveStats();
+    // INT 50 → 倍率 1.15
     expect(eff.constitution).toBe(Math.round(80 * 1.15));
     expect(eff.strength).toBe(Math.round(80 * 1.15));
   });
@@ -197,7 +210,8 @@ describe('2.3 MYTHIC 连锁反应', () => {
   it('S-2.3.1 MYTHIC 属性加成', () => {
     const cat = createCat({ bloodline: BloodlineType.MYTHIC });
     const eff = cat.getEffectiveStats();
-    expect(eff.constitution).toBe(50 + 2 + 3); // base + Godly_Glow eye + MYTHIC
+    // base 50 + MYTHIC +3（blue/orange 不加 con）
+    expect(eff.constitution).toBe(50 + 3);
   });
 
   it('S-2.3.2 MYTHIC 寿命加成', () => {
@@ -292,9 +306,10 @@ describe('3.3 性状触发器', () => {
     expect(child.mutationChanceMultiplier).toBeGreaterThanOrEqual(1.5);
   });
 
-  it('B-3.3.3 无触发性状', () => {
-    const father = createCat();
-    const mother = createCat();
+  it('B-3.3.3 无触发性状（LUK 0 时无幸运加成）', () => {
+    const zeroLuckStats = { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 0 };
+    const father = createCat({ stats: zeroLuckStats });
+    const mother = createCat({ stats: zeroLuckStats });
     const genetics = new GeneticsSystem(noMutationRng);
     const child = genetics.breed(father, mother);
     expect(child.mutationChanceMultiplier).toBe(1);
@@ -340,6 +355,128 @@ describe('4.2 权力冲突', () => {
     const usurperEff = usurper.getEffectiveStats();
     const canUsurp = kingdom.preferredStats.some((s) => usurperEff[s] - kingEff[s] >= 15);
     expect(canUsurp).toBe(false);
+  });
+
+  it('D-4.2.3 力量影响篡位胜率', () => {
+    const king = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const strongUsurper = createCat({ stats: { constitution: 50, strength: 80, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const weakUsurper = createCat({ stats: { constitution: 50, strength: 30, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcUsurpChance(king, strongUsurper)).toBeGreaterThan(calcUsurpChance(king, weakUsurper));
+  });
+
+  it('D-4.2.4 体质影响被篡位率', () => {
+    const usurper = createCat({ stats: { constitution: 50, strength: 70, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const highConKing = createCat({ stats: { constitution: 90, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const lowConKing = createCat({ stats: { constitution: 20, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcUsurpChance(highConKing, usurper)).toBeLessThan(calcUsurpChance(lowConKing, usurper));
+  });
+});
+
+// ========== 六、六维属性玩法机制 ==========
+
+describe('6.1 体质 - 王朝稳定性', () => {
+  it('A-6.1.1 体质降低被篡位率', () => {
+    const usurper = createCat({ stats: { constitution: 50, strength: 60, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const highConKing = createCat({ stats: { constitution: 80, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const lowConKing = createCat({ stats: { constitution: 20, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcUsurpChance(highConKing, usurper)).toBeLessThan(calcUsurpChance(lowConKing, usurper));
+  });
+});
+
+describe('6.2 力量 - 武力夺权', () => {
+  it('A-6.2.1 力量提高篡位胜率', () => {
+    const king = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const strongUsurper = createCat({ stats: { constitution: 50, strength: 90, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const weakUsurper = createCat({ stats: { constitution: 50, strength: 40, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcUsurpChance(king, strongUsurper)).toBeGreaterThan(calcUsurpChance(king, weakUsurper));
+  });
+
+  it('A-6.2.2 力量差为负时胜率降低', () => {
+    const king = createCat({ stats: { constitution: 50, strength: 80, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const weakUsurper = createCat({ stats: { constitution: 50, strength: 30, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcUsurpChance(king, weakUsurper)).toBeLessThan(0.2);
+  });
+});
+
+describe('6.3 敏捷 - 规避刺杀', () => {
+  it('A-6.3.1 敏捷提高存活率', () => {
+    const highAgi = createCat({ stats: { constitution: 50, strength: 50, agility: 90, intelligence: 50, charm: 50, luck: 50 } });
+    const lowAgi = createCat({ stats: { constitution: 50, strength: 50, agility: 20, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcAssassinationSurviveChance(highAgi)).toBeGreaterThan(calcAssassinationSurviveChance(lowAgi));
+  });
+
+  it('A-6.3.2 存活率上限 95%', () => {
+    const maxAgi = createCat({ stats: { constitution: 50, strength: 50, agility: 100, intelligence: 50, charm: 50, luck: 50 } });
+    expect(calcAssassinationSurviveChance(maxAgi)).toBeLessThanOrEqual(0.95);
+  });
+
+  it('A-6.3.3 刺杀基础概率', () => {
+    expect(getAssassinationChance()).toBe(0.12);
+  });
+});
+
+describe('6.4 智力 - 盟约效率', () => {
+  it('A-6.4.1 INT 0 时盟约倍率 1.1', () => {
+    const cat = createCat({
+      motherKingdomId: 'north',
+      motherBloodline: BloodlineType.ROYAL,
+      stats: { constitution: 80, strength: 80, agility: 50, intelligence: 0, charm: 50, luck: 50 },
+    });
+    const eff = cat.getEffectiveStats();
+    expect(eff.constitution).toBe(Math.round(80 * 1.1));
+  });
+
+  it('A-6.4.2 INT 100 时盟约倍率 1.2', () => {
+    const cat = createCat({
+      motherKingdomId: 'north',
+      motherBloodline: BloodlineType.ROYAL,
+      stats: { constitution: 80, strength: 80, agility: 50, intelligence: 100, charm: 50, luck: 50 },
+    });
+    const eff = cat.getEffectiveStats();
+    expect(eff.constitution).toBe(Math.round(80 * 1.2));
+  });
+});
+
+describe('6.5 魅力 - 流浪猫造访', () => {
+  it('A-6.5.1 魅力提高流浪猫概率', () => {
+    const highCha = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 90, luck: 50 } });
+    const lowCha = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 10, luck: 50 } });
+    expect(calcWildSpouseChance(highCha)).toBeGreaterThan(calcWildSpouseChance(lowCha));
+  });
+
+  it('A-6.5.2 流浪猫概率上限 60%', () => {
+    const maxCha = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 100, luck: 50 } });
+    expect(calcWildSpouseChance(maxCha)).toBeLessThanOrEqual(0.6);
+  });
+
+  it('A-6.5.3 CHA 0 时基础约 25%', () => {
+    const zeroCha = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 0, luck: 50 } });
+    expect(calcWildSpouseChance(zeroCha)).toBeCloseTo(0.25, 1);
+  });
+});
+
+describe('6.6 幸运 - 基因突变率', () => {
+  it('A-6.6.1 父母 LUK 提高后代突变率', () => {
+    const highLuckFather = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 90 } });
+    const highLuckMother = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 90 } });
+    const lowLuckFather = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 10 } });
+    const lowLuckMother = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 10 } });
+    const genetics = new GeneticsSystem(noMutationRng);
+    const highLuckChild = genetics.breed(highLuckFather, highLuckMother);
+    const lowLuckChild = genetics.breed(lowLuckFather, lowLuckMother);
+    expect(highLuckChild.mutationChanceMultiplier).toBeGreaterThan(lowLuckChild.mutationChanceMultiplier);
+  });
+
+  it('A-6.6.2 LUK 与性状触发器叠加', () => {
+    const starryFather = createCat({
+      cachedTraits: { eye: 'StarryEye', fur: 'orange' },
+      stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 },
+    });
+    const mother = createCat({ stats: { constitution: 50, strength: 50, agility: 50, intelligence: 50, charm: 50, luck: 50 } });
+    const genetics = new GeneticsSystem(noMutationRng);
+    const child = genetics.breed(starryFather, mother);
+    // StarryEye 1.5x, LUK 50+50 均值 50 → 1 + 0.5 = 1.5, 总 1.5 * 1.5 = 2.25
+    expect(child.mutationChanceMultiplier).toBeGreaterThanOrEqual(1.5);
   });
 });
 

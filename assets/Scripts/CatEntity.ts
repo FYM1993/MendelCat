@@ -11,7 +11,8 @@ import {
     TRAIT_STAT_BONUSES,
     MYTHIC_TRAIT,
     MUTATION_CHANCE,
-    COVENANT_MULTIPLIER,
+    COVENANT_MULTIPLIER_BASE,
+    COVENANT_MULTIPLIER_MAX,
     BASE_LIFESPAN,
     HOMOZYGOUS_BONUS_MULTIPLIER,
     MYTHIC_STAT_BONUS,
@@ -162,17 +163,19 @@ export class CatEntity {
     }
 
     /**
-     * 盟约加成：仅当母亲为王室/神话血统时生效（README：只有母系血统对上时盟约才生效）
-     * 荒野流浪猫联姻不提供盟约
+     * 盟约加成：仅当母亲为王室/神话血统时生效
+     * 智力：INT 越高，盟约加成效率越高（政治阴谋与盟约加成效率）
      */
     applyCovenant(stats: Stats): Stats {
         if (!this.motherKingdomId) return stats;
-        if (this.motherBloodline === BloodlineType.WILD) return stats;  // 流浪猫无盟约
+        if (this.motherBloodline === BloodlineType.WILD) return stats;
         const kingdom = KINGDOMS.find((k) => k.id === this.motherKingdomId);
         if (!kingdom) return stats;
+        const intRatio = this.stats.intelligence / 100;
+        const multiplier = COVENANT_MULTIPLIER_BASE + (COVENANT_MULTIPLIER_MAX - COVENANT_MULTIPLIER_BASE) * intRatio;
         const result = { ...stats };
         for (const k of kingdom.preferredStats) {
-            result[k] = Math.round(result[k] * COVENANT_MULTIPLIER);
+            result[k] = Math.round(result[k] * multiplier);
             result[k] = Math.max(0, Math.min(100, result[k]));
         }
         return result;

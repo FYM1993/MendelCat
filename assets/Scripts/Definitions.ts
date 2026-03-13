@@ -66,8 +66,14 @@ export const MYTHIC_TRAIT = 'Godly_Glow';
 /** 稀有突变概率 */
 export const MUTATION_CHANCE = 0.01;
 
-/** 盟约加成系数（母亲国家偏好属性） */
-export const COVENANT_MULTIPLIER = 1.15;
+/** 盟约加成系数基础值（母亲国家偏好属性） */
+export const COVENANT_MULTIPLIER_BASE = 1.1;
+
+/** 盟约加成系数上限（智力 100 时达到） */
+export const COVENANT_MULTIPLIER_MAX = 1.2;
+
+/** 幸运对突变率的加成：父母幸运均值每 100 点，突变率 +100% */
+export const LUCK_MUTATION_FACTOR = 0.01;
 
 /** 寿命基础值 */
 export const BASE_LIFESPAN = 10;

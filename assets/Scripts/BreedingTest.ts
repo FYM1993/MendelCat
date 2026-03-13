@@ -3,6 +3,12 @@ const { ccclass } = _decorator;
 
 import { CatEntity } from './CatEntity';
 import { GeneticsSystem } from './GeneticsSystem';
+import {
+    calcUsurpChance,
+    calcAssassinationSurviveChance,
+    getAssassinationChance,
+    calcWildSpouseChance,
+} from './GameplayService';
 import { BloodlineType, STAT_KEYS, KINGDOMS, type Stats, type GenePair } from './Definitions';
 
 /** 默认基因对模板 */
@@ -36,14 +42,12 @@ export class BreedingTest extends Component {
         log(`【第 ${catKing.generation} 代】初代猫王登基，六维均值: ${catKing.getStatsAverage().toFixed(1)}，寿命: ${catKing.lifespan.toFixed(1)}`);
 
         for (let gen = 2; gen <= 10; gen++) {
-            // 生成配偶候选：3 邻国 + 1 荒野
+            // 生成配偶候选：3 邻国 + 1 荒野，魅力影响流浪猫被选中的概率
             const neighborCats = this.createNeighborCandidates(3);
             const wildCat = this.createWildStray();
             const spouseCandidates = [...neighborCats, wildCat];
-
-            // 随机选一个配偶
-            const spouseIndex = Math.floor(Math.random() * spouseCandidates.length);
-            const spouse = spouseCandidates[spouseIndex];
+            const wildChance = calcWildSpouseChance(catKing);
+            const spouse = this.pickSpouseByCharm(spouseCandidates, wildCat, wildChance);
             const spouseType =
                 spouse.bloodline === BloodlineType.MYTHIC ? '神话血统' :
                 spouse.bloodline === BloodlineType.WILD ? '荒野流浪猫' : '邻国王室';
@@ -61,7 +65,7 @@ export class BreedingTest extends Component {
             let nextKing = offspring[0];
             nextKing.name = `第${gen}代猫王`;
 
-            // 模拟权力冲突：属性第二高的猫若在偏好属性上超过新王 15 点，30% 概率篡位
+            // 权力冲突：力量/体质决定篡位胜率（力量高易夺权，体质高稳江山）
             if (offspring.length >= 2) {
                 const usurper = offspring[1];
                 const kingdom = KINGDOMS.find((k) => k.id === nextKing.kingdomId);
@@ -70,10 +74,23 @@ export class BreedingTest extends Component {
                 const canUsurp = kingdom?.preferredStats.some(
                     (stat) => usurperEff[stat] - kingEff[stat] >= 15
                 );
-                if (canUsurp && Math.random() < 0.3) {
+                const usurpChance = calcUsurpChance(nextKing, usurper);
+                if (canUsurp && Math.random() < usurpChance) {
                     usurper.name = `第${gen}代猫王`;
                     nextKing = usurper;
-                    log(`⚔️ 夺权篡位！次子在某项国家偏好属性上碾压新王，发动政变成功！`);
+                    log(`⚔️ 夺权篡位！次子力量碾压新王，发动政变成功！（胜率 ${(usurpChance * 100).toFixed(0)}%）`);
+                }
+            }
+
+            // 刺杀事件：敏捷决定规避成功率
+            if (Math.random() < getAssassinationChance()) {
+                const surviveChance = calcAssassinationSurviveChance(nextKing);
+                if (Math.random() >= surviveChance) {
+                    log(`🗡️ 刺杀！猫王遇刺身亡，次子紧急继位！`);
+                    if (offspring.length >= 2) {
+                        nextKing = offspring[1];
+                        nextKing.name = `第${gen}代猫王`;
+                    }
                 }
             }
 
@@ -141,6 +158,17 @@ export class BreedingTest extends Component {
             }));
         }
         return result;
+    }
+
+    /** 魅力影响配偶选择：流浪猫权重 = wildChance * 4，王室各 1 */
+    private pickSpouseByCharm(candidates: CatEntity[], wildCat: CatEntity, wildChance: number): CatEntity {
+        const wildWeight = wildChance * 4;
+        const royalWeight = 1;
+        const total = wildWeight + royalWeight * 3;
+        const r = Math.random() * total;
+        if (r < wildWeight) return wildCat;
+        const royalIndex = Math.floor((r - wildWeight) / royalWeight);
+        return candidates.filter((c) => c !== wildCat)[royalIndex];
     }
 
     /** 创建荒野流浪猫（某项 90+，其他极低） */

@@ -5,7 +5,7 @@
  */
 
 import type { Stats, GenePair, GeneAllele } from './Definitions';
-import { BloodlineType, STAT_KEYS, INBREEDING_PENALTY, HYBRID_VIGOR_BONUS, TRAIT_MUTATION_BOOST } from './Definitions';
+import { BloodlineType, STAT_KEYS, INBREEDING_PENALTY, HYBRID_VIGOR_BONUS, TRAIT_MUTATION_BOOST, LUCK_MUTATION_FACTOR } from './Definitions';
 import { CatEntity } from './CatEntity';
 
 /** 随机数生成器接口，便于单测时注入确定性随机源 */
@@ -45,8 +45,10 @@ export class GeneticsSystem {
         const bloodline = this.pickBloodline(father.bloodline, mother.bloodline);
         const generation = Math.max(father.generation, mother.generation) + 1;
 
-        // 性状触发器：父母若有 StarryEye/Godly_Glow 等，提高后代突变率
-        const mutationMultiplier = this.calcMutationChanceMultiplier(father, mother);
+        // 性状触发器 + 幸运：父母性状与幸运共同影响后代突变率
+        const traitMult = this.calcMutationChanceMultiplier(father, mother);
+        const luckBonus = 1 + (father.stats.luck + mother.stats.luck) / 2 * LUCK_MUTATION_FACTOR;
+        const mutationMultiplier = traitMult * luckBonus;
 
         return new CatEntity({
             stats,
