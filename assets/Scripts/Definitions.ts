@@ -17,6 +17,7 @@ export interface Stats {
 export enum BloodlineType {
     ROYAL = 'ROYAL',
     WILD = 'WILD',
+    MYTHIC = 'MYTHIC',  // 稀有突变触发的神话血统
 }
 
 /** 基因单元：单个等位基因 */
@@ -27,6 +28,70 @@ export interface GeneAllele {
 
 /** 基因对：[父本基因, 母本基因] */
 export type GenePair = [GeneAllele, GeneAllele];
+
+/** 共显性：双显性且性状不同时的合成结果，key 为排序后的 "traitA|traitB" */
+export const CODOMINANCE_MAP: Record<string, string> = {
+    'Flame|Ice': 'Steam',
+    'Blue|Gold': 'Azure',
+    'Fire|Water': 'Mist',
+    'Light|Shadow': 'Twilight',
+    'Storm|Sun': 'Rainbow',
+};
+
+/** 性状 → 六维属性加成（微小加成） */
+export const TRAIT_STAT_BONUSES: Record<string, Partial<Stats>> = {
+    // 稀有/合成性状
+    StarryEye: { luck: 5 },
+    Azure: { intelligence: 4 },
+    Steam: { constitution: 3 },
+    Twilight: { charm: 4 },
+    Rainbow: { luck: 3, charm: 2 },
+    Godly_Glow: { constitution: 2, strength: 2, agility: 2, intelligence: 2, charm: 2, luck: 2 },
+    Mist: { agility: 3 },
+    // 常见性状
+    blue: { intelligence: 2 },
+    orange: { charm: 2 },
+    green: { agility: 2 },
+    gold: { luck: 2 },
+    amber: { constitution: 2 },
+    gray: { strength: 2 },
+    white: { charm: 1 },
+    black: { strength: 1 },
+    striped: { agility: 1 },
+};
+
+/** 稀有突变性状 */
+export const MYTHIC_TRAIT = 'Godly_Glow';
+
+/** 稀有突变概率 */
+export const MUTATION_CHANCE = 0.01;
+
+/** 盟约加成系数（母亲国家偏好属性） */
+export const COVENANT_MULTIPLIER = 1.15;
+
+/** 寿命基础值 */
+export const BASE_LIFESPAN = 10;
+
+/** 纯合子性状加成倍率 */
+export const HOMOZYGOUS_BONUS_MULTIPLIER = 1.5;
+
+/** MYTHIC 突变：全属性额外加成 */
+export const MYTHIC_STAT_BONUS = 3;
+
+/** MYTHIC 突变：寿命额外加成 */
+export const MYTHIC_LIFESPAN_BONUS = 5;
+
+/** 近亲繁殖：同国家父母时属性惩罚（乘以 0.95） */
+export const INBREEDING_PENALTY = 0.95;
+
+/** 跨国杂交：不同国家父母时属性加成 */
+export const HYBRID_VIGOR_BONUS = 3;
+
+/** 性状繁育触发器：该性状的父母参与繁育时，后代突变率乘数 */
+export const TRAIT_MUTATION_BOOST: Record<string, number> = {
+    StarryEye: 1.5,   // 星空眼：下一代突变率 +50%
+    Godly_Glow: 1.2,  // 神话光辉：下一代突变率 +20%
+};
 
 /** 六维属性键名（用于遍历） */
 export const STAT_KEYS: (keyof Stats)[] = [

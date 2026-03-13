@@ -5,7 +5,7 @@
  */
 
 import type { Stats, GenePair, GeneAllele } from './Definitions';
-import { BloodlineType, STAT_KEYS } from './Definitions';
+import { BloodlineType, STAT_KEYS, INBREEDING_PENALTY, HYBRID_VIGOR_BONUS, TRAIT_MUTATION_BOOST } from './Definitions';
 import { CatEntity } from './CatEntity';
 
 /** 随机数生成器接口，便于单测时注入确定性随机源 */
@@ -45,14 +45,34 @@ export class GeneticsSystem {
         const bloodline = this.pickBloodline(father.bloodline, mother.bloodline);
         const generation = Math.max(father.generation, mother.generation) + 1;
 
+        // 性状触发器：父母若有 StarryEye/Godly_Glow 等，提高后代突变率
+        const mutationMultiplier = this.calcMutationChanceMultiplier(father, mother);
+
         return new CatEntity({
             stats,
             bloodline,
             kingdomId,
+            motherKingdomId: mother.kingdomId,
+            motherBloodline: mother.bloodline,
+            mutationChanceMultiplier: mutationMultiplier,
             generation,
             eyeGene,
             furGene,
         });
+    }
+
+    /** 根据父母性状计算后代突变率乘数 */
+    private calcMutationChanceMultiplier(father: CatEntity, mother: CatEntity): number {
+        let mult = 1;
+        const fEye = father.expressedEyeTrait;
+        const fFur = father.expressedFurTrait;
+        const mEye = mother.expressedEyeTrait;
+        const mFur = mother.expressedFurTrait;
+        for (const trait of [fEye, fFur, mEye, mFur]) {
+            const boost = TRAIT_MUTATION_BOOST[trait];
+            if (boost && boost > mult) mult = boost;
+        }
+        return mult;
     }
 
     /**
@@ -80,6 +100,19 @@ export class GeneticsSystem {
 
         if (hasWild) {
             return this.applyMutation(base);
+        }
+
+        // 近亲繁殖衰退：同国家父母，属性 × 0.95
+        // 跨国杂交优势：不同国家父母，全属性 +3
+        const sameKingdom = father.kingdomId === mother.kingdomId;
+        if (sameKingdom) {
+            for (const key of STAT_KEYS) {
+                base[key] = this.clampStat(base[key] * INBREEDING_PENALTY);
+            }
+        } else {
+            for (const key of STAT_KEYS) {
+                base[key] = this.clampStat(base[key] + HYBRID_VIGOR_BONUS);
+            }
         }
 
         return base;
